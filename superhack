@@ -1,0 +1,574 @@
+CODE FOR SUPERHACK TOPIC - SELF HEALING IT INFRASTRUCTURE
+self-healing-agent v2
+CodePreview
+"use client";
+
+import { useState, useEffect } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { 
+  Play, 
+  Pause, 
+  RotateCcw, 
+  AlertTriangle, 
+  CheckCircle, 
+  Clock, 
+  Server, 
+  Cpu, 
+  Activity,
+  Zap,
+  Shield
+} from "lucide-react";
+
+// Types
+type ServiceStatus = "healthy" | "warning" | "critical" | "recovering";
+type ActionType = "restart" | "redeploy" | "scale" | "none";
+type NotificationType = "slack" | "email" | "webhook";
+
+interface Service {
+  id: string;
+  name: string;
+  status: ServiceStatus;
+  cpu: number;
+  memory: number;
+  lastChecked: Date;
+  action: ActionType;
+  actionStatus: "pending" | "in-progress" | "completed" | "failed";
+}
+
+interface Incident {
+  id: string;
+  serviceId: string;
+  serviceName: string;
+  timestamp: Date;
+  description: string;
+  actionTaken: ActionType;
+  status: "resolved" | "in-progress" | "failed";
+}
+
+interface Notification {
+  id: string;
+  type: NotificationType;
+  message: string;
+  timestamp: Date;
+  read: boolean;
+}
+
+// Mock data generators
+const generateServices = (): Service[] => [
+  { id: "svc-1", name: "User Authentication API", status: "healthy", cpu: 45, memory: 62, lastChecked: new Date(), action: "none", actionStatus: "completed" },
+  { id: "svc-2", name: "Payment Processing", status: "warning", cpu: 82, memory: 78, lastChecked: new Date(), action: "scale", actionStatus: "in-progress" },
+  { id: "svc-3", name: "Database Cluster", status: "healthy", cpu: 32, memory: 45, lastChecked: new Date(), action: "none", actionStatus: "completed" },
+  { id: "svc-4", name: "Frontend CDN", status: "critical", cpu: 95, memory: 92, lastChecked: new Date(), action: "restart", actionStatus: "pending" },
+  { id: "svc-5", name: "Notification Service", status: "recovering", cpu: 25, memory: 38, lastChecked: new Date(), action: "redeploy", actionStatus: "completed" },
+  { id: "svc-6", name: "Analytics Engine", status: "healthy", cpu: 55, memory: 68, lastChecked: new Date(), action: "none", actionStatus: "completed" },
+];
+
+const generateIncidents = (): Incident[] => [
+  { 
+    id: "inc-1", 
+    serviceId: "svc-4", 
+    serviceName: "Frontend CDN", 
+    timestamp: new Date(Date.now() - 3600000), 
+    description: "High CPU usage detected (95%)", 
+    actionTaken: "restart", 
+    status: "resolved" 
+  },
+  { 
+    id: "inc-2", 
+    serviceId: "svc-2", 
+    serviceName: "Payment Processing", 
+    timestamp: new Date(Date.now() - 7200000), 
+    description: "Memory leak causing performance degradation", 
+    actionTaken: "scale", 
+    status: "in-progress" 
+  },
+  { 
+    id: "inc-3", 
+    serviceId: "svc-5", 
+    serviceName: "Notification Service", 
+    timestamp: new Date(Date.now() - 10800000), 
+    description: "Service crash due to unhandled exception", 
+    actionTaken: "redeploy", 
+    status: "resolved" 
+  },
+];
+
+const generateNotifications = (): Notification[] => [
+  { id: "notif-1", type: "slack", message: "Incident resolved: Frontend CDN restarted successfully", timestamp: new Date(Date.now() - 1800000), read: false },
+  { id: "notif-2", type: "email", message: "Action required: Payment Processing needs scaling", timestamp: new Date(Date.now() - 3600000), read: true },
+  { id: "notif-3", type: "webhook", message: "New incident detected: Notification Service crash", timestamp: new Date(Date.now() - 5400000), read: false },
+];
+
+export default function SelfHealingAgent() {
+  // State management
+  const [isMonitoring, setIsMonitoring] = useState(true);
+  const [services, setServices] = useState<Service[]>(generateServices());
+  const [incidents, setIncidents] = useState<Incident[]>(generateIncidents());
+  const [notifications, setNotifications] = useState<Notification[]>(generateNotifications());
+  const [systemHealth, setSystemHealth] = useState<ServiceStatus>("healthy");
+
+  // Simulate monitoring
+  useEffect(() => {
+    if (!isMonitoring) return;
+
+    const interval = setInterval(() => {
+      // Update services with random changes
+      setServices(prev => {
+        const updated = [...prev];
+        const randomIndex = Math.floor(Math.random() * updated.length);
+        const service = updated[randomIndex];
+        
+        // Randomly change status
+        const statuses: ServiceStatus[] = ["healthy", "warning", "critical"];
+        const newStatus = statuses[Math.floor(Math.random() * statuses.length)];
+        
+        // Update metrics
+        const newCpu = Math.min(100, Math.max(0, service.cpu + (Math.random() * 20 - 10)));
+        const newMemory = Math.min(100, Math.max(0, service.memory + (Math.random() * 20 - 10)));
+        
+        // Determine action based on status
+        let action: ActionType = "none";
+        if (newStatus === "critical") {
+          action = Math.random() > 0.5 ? "restart" : "redeploy";
+        } else if (newStatus === "warning" && newCpu > 80) {
+          action = "scale";
+        }
+        
+        updated[randomIndex] = {
+          ...service,
+          status: newStatus,
+          cpu: newCpu,
+          memory: newMemory,
+          lastChecked: new Date(),
+          action,
+          actionStatus: action !== "none" ? "pending" : "completed"
+        };
+        
+        // Update system health based on services
+        const criticalCount = updated.filter(s => s.status === "critical").length;
+        const warningCount = updated.filter(s => s.status === "warning").length;
+        
+        if (criticalCount > 0) {
+          setSystemHealth("critical");
+        } else if (warningCount > 0) {
+          setSystemHealth("warning");
+        } else {
+          setSystemHealth("healthy");
+        }
+        
+        return updated;
+      });
+      
+      // Add new incidents randomly
+      if (Math.random() > 0.7) {
+        setIncidents(prev => {
+          const newIncident: Incident = {
+            id: inc-${Date.now()},
+            serviceId: svc-${Math.floor(Math.random() * 6) + 1},
+            serviceName: Service ${Math.floor(Math.random() * 6) + 1},
+            timestamp: new Date(),
+            description: "Anomaly detected by AI agent",
+            actionTaken: ["restart", "redeploy", "scale"][Math.floor(Math.random() * 3)] as ActionType,
+            status: "in-progress"
+          };
+          return [newIncident, ...prev.slice(0, 9)]; // Keep only last 10
+        });
+      }
+      
+      // Add new notifications randomly
+      if (Math.random() > 0.8) {
+        setNotifications(prev => {
+          const types: NotificationType[] = ["slack", "email", "webhook"];
+          const newNotification: Notification = {
+            id: notif-${Date.now()},
+            type: types[Math.floor(Math.random() * types.length)],
+            message: "New incident detected and remediation initiated",
+            timestamp: new Date(),
+            read: false
+          };
+          return [newNotification, ...prev.slice(0, 4)]; // Keep only last 5
+        });
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [isMonitoring]);
+
+  // Toggle monitoring
+  const toggleMonitoring = () => {
+    setIsMonitoring(!isMonitoring);
+  };
+
+  // Reset simulation
+  const resetSimulation = () => {
+    setServices(generateServices());
+    setIncidents(generateIncidents());
+    setNotifications(generateNotifications());
+    setSystemHealth("healthy");
+  };
+
+  // Mark notification as read
+  const markAsRead = (id: string) => {
+    setNotifications(prev => 
+      prev.map(notif => 
+        notif.id === id ? { ...notif, read: true } : notif
+      )
+    );
+  };
+
+  // Get status badge
+  const getStatusBadge = (status: ServiceStatus) => {
+    switch (status) {
+      case "healthy": return <Badge className="bg-green-500 hover:bg-green-600">Healthy</Badge>;
+      case "warning": return <Badge className="bg-yellow-500 hover:bg-yellow-600">Warning</Badge>;
+      case "critical": return <Badge className="bg-red-500 hover:bg-red-600">Critical</Badge>;
+      case "recovering": return <Badge className="bg-blue-500 hover:bg-blue-600">Recovering</Badge>;
+      default: return <Badge>Unknown</Badge>;
+    }
+  };
+
+  // Get action badge
+  const getActionBadge = (action: ActionType, status: string) => {
+    if (action === "none") return null;
+    
+    const actionColors = {
+      restart: "bg-orange-500",
+      redeploy: "bg-purple-500",
+      scale: "bg-blue-500"
+    };
+    
+    const actionText = {
+      restart: "Restarting",
+      redeploy: "Redeploying",
+      scale: "Scaling"
+    };
+    
+    return (
+      <Badge className={${actionColors[action]} ${status === "completed" ? "bg-green-500" : ""}}>
+        {status === "completed" ? "Completed" : actionText[action]}
+      </Badge>
+    );
+  };
+
+  // Get system health icon
+  const getHealthIcon = () => {
+    switch (systemHealth) {
+      case "healthy": return <CheckCircle className="h-6 w-6 text-green-500" />;
+      case "warning": return <AlertTriangle className="h-6 w-6 text-yellow-500" />;
+      case "critical": return <AlertTriangle className="h-6 w-6 text-red-500" />;
+      default: return <Shield className="h-6 w-6 text-gray-500" />;
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-4 md:p-6">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <header className="mb-8">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <h1 className="text-2xl md:text-3xl font-bold text-gray-800 flex items-center gap-2">
+                <Shield className="h-8 w-8 text-blue-600" />
+                Self-Healing IT Infrastructure Agent
+              </h1>
+              <p className="text-gray-600 mt-1">
+                AI-powered autonomous remediation for IT systems
+              </p>
+            </div>
+            
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-lg shadow">
+                {getHealthIcon()}
+                <div>
+                  <div className="text-sm text-gray-500">System Status</div>
+                  <div className="font-medium capitalize">{systemHealth}</div>
+                </div>
+              </div>
+              
+              <div className="flex gap-2">
+                <Button 
+                  onClick={toggleMonitoring} 
+                  variant={isMonitoring ? "destructive" : "default"}
+                  size="sm"
+                >
+                  {isMonitoring ? (
+                    <>
+                      <Pause className="mr-2 h-4 w-4" /> Pause
+                    </>
+                  ) : (
+                    <>
+                      <Play className="mr-2 h-4 w-4" /> Resume
+                    </>
+                  )}
+                </Button>
+                <Button onClick={resetSimulation} variant="outline" size="sm">
+                  <RotateCcw className="mr-2 h-4 w-4" /> Reset
+                </Button>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        {/* Dashboard Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+          {/* Services Overview */}
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Server className="h-5 w-5" />
+                Services Overview
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {services.map(service => (
+                  <div 
+                    key={service.id} 
+                    className="border rounded-lg p-4 hover:bg-gray-50 transition-colors"
+                  >
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h3 className="font-medium">{service.name}</h3>
+                        <div className="flex items-center gap-2 mt-1">
+                          {getStatusBadge(service.status)}
+                          {getActionBadge(service.action, service.actionStatus)}
+                        </div>
+                      </div>
+                      <div className="text-right text-sm text-gray-500">
+                        Last checked: {service.lastChecked.toLocaleTimeString()}
+                      </div>
+                    </div>
+                    
+                    <div className="mt-3 grid grid-cols-2 gap-4">
+                      <div>
+                        <div className="flex items-center gap-2 text-sm text-gray-600 mb-1">
+                          <Cpu className="h-4 w-4" /> CPU Usage
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div 
+                            className={`h-2 rounded-full ${
+                              service.cpu > 80 ? "bg-red-500" : 
+                              service.cpu > 60 ? "bg-yellow-500" : "bg-green-500"
+                            }`} 
+                            style={{ width: ${service.cpu}% }}
+                          ></div>
+                        </div>
+                        <div className="text-right text-xs mt-1">{service.cpu.toFixed(1)}%</div>
+                      </div>
+                      
+                      <div>
+                        <div className="flex items-center gap-2 text-sm text-gray-600 mb-1">
+                          <Activity className="h-4 w-4" /> Memory Usage
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div 
+                            className={`h-2 rounded-full ${
+                              service.memory > 80 ? "bg-red-500" : 
+                              service.memory > 60 ? "bg-yellow-500" : "bg-green-500"
+                            }`} 
+                            style={{ width: ${service.memory}% }}
+                          ></div>
+                        </div>
+                        <div className="text-right text-xs mt-1">{service.memory.toFixed(1)}%</div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+          
+          {/* Recent Incidents */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-orange-500" />
+                Recent Incidents
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {incidents.map(incident => (
+                  <div 
+                    key={incident.id} 
+                    className="border-l-4 border-orange-500 pl-4 py-2 bg-orange-50 rounded-r"
+                  >
+                    <div className="flex justify-between">
+                      <h3 className="font-medium">{incident.serviceName}</h3>
+                      <Badge variant={incident.status === "resolved" ? "default" : "secondary"}>
+                        {incident.status}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-gray-600 mt-1">{incident.description}</p>
+                    <div className="flex justify-between items-center mt-2">
+                      <div className="text-xs text-gray-500">
+                        {incident.timestamp.toLocaleTimeString()}
+                      </div>
+                      <Badge variant="outline">
+                        {incident.actionTaken}
+                      </Badge>
+                    </div>
+                  </div>
+                ))}
+                
+                {incidents.length === 0 && (
+                  <div className="text-center py-8 text-gray-500">
+                    <CheckCircle className="h-12 w-12 mx-auto text-green-500 mb-2" />
+                    <p>No incidents detected</p>
+                    <p className="text-sm mt-1">All systems operating normally</p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+        
+        {/* Notifications and Actions */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Notifications */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Zap className="h-5 w-5" />
+                Notifications
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {notifications.map(notification => (
+                  <div 
+                    key={notification.id} 
+                    className={`border rounded-lg p-3 ${
+                      notification.read ? "bg-gray-50" : "bg-blue-50 border-blue-200"
+                    }`}
+                  >
+                    <div className="flex justify-between">
+                      <div className="flex items-center gap-2">
+                        {notification.type === "slack" && (
+                          <div className="bg-purple-100 text-purple-800 text-xs px-2 py-1 rounded">
+                            Slack
+                          </div>
+                        )}
+                        {notification.type === "email" && (
+                          <div className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">
+                            Email
+                          </div>
+                        )}
+                        {notification.type === "webhook" && (
+                          <div className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded">
+                            Webhook
+                          </div>
+                        )}
+                        <span className="text-sm font-medium">
+                          {notification.message}
+                        </span>
+                      </div>
+                      {!notification.read && (
+                        <Button 
+                          size="sm" 
+                          variant="ghost" 
+                          onClick={() => markAsRead(notification.id)}
+                        >
+                          Mark as read
+                        </Button>
+                      )}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-2">
+                      {notification.timestamp.toLocaleString()}
+                    </div>
+                  </div>
+                ))}
+                
+                {notifications.length === 0 && (
+                  <div className="text-center py-4 text-gray-500">
+                    <Clock className="h-8 w-8 mx-auto mb-2" />
+                    <p>No notifications</p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+          
+          {/* Autonomous Actions */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Play className="h-5 w-5" />
+                Autonomous Actions
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <h3 className="font-medium text-blue-800 flex items-center gap-2">
+                    <Shield className="h-5 w-5" />
+                    Active Remediation
+                  </h3>
+                  <p className="text-sm text-blue-700 mt-1">
+                    The agent is continuously monitoring and taking corrective actions
+                  </p>
+                  
+                  <div className="mt-4 grid grid-cols-3 gap-3">
+                    <div className="bg-white p-3 rounded-lg text-center">
+                      <div className="text-2xl font-bold text-blue-600">24</div>
+                      <div className="text-xs text-gray-600">Incidents</div>
+                    </div>
+                    <div className="bg-white p-3 rounded-lg text-center">
+                      <div className="text-2xl font-bold text-green-600">21</div>
+                      <div className="text-xs text-gray-600">Resolved</div>
+                    </div>
+                    <div className="bg-white p-3 rounded-lg text-center">
+                      <div className="text-2xl font-bold text-purple-600">87%</div>
+                      <div className="text-xs text-gray-600">Success Rate</div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div>
+                  <h3 className="font-medium mb-2">Recent Actions</h3>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                      <div className="flex items-center gap-2">
+                        <div className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded">
+                          Restart
+                        </div>
+                        <span>Frontend CDN</span>
+                      </div>
+                      <Badge variant="secondary">Completed</Badge>
+                    </div>
+                    <div className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                      <div className="flex items-center gap-2">
+                        <div className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">
+                          Scale
+                        </div>
+                        <span>Payment Processing</span>
+                      </div>
+                      <Badge variant="secondary">In Progress</Badge>
+                    </div>
+                    <div className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                      <div className="flex items-center gap-2">
+                        <div className="bg-purple-100 text-purple-800 text-xs px-2 py-1 rounded">
+                          Redeploy
+                        </div>
+                        <span>Notification Service</span>
+                      </div>
+                      <Badge variant="secondary">Completed</Badge>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+        
+        {/* Footer */}
+        <footer className="mt-8 text-center text-gray-500 text-sm">
+          <p>AI Self-Healing Infrastructure Agent • Reducing downtime through autonomous remediation</p>
+          <p className="mt-1">Integrates with ServiceNow, Jira, and major cloud platforms</p>
+        </footer>
+      </div>
+    </div>
+  );
+}
